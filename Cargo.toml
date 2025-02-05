@@ -1,0 +1,16 @@
+[package]
+name = "dirty"
+version = "0.1.0"
+authors = ["amit"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+cpal = "0.15.3"
+eframe = "0.30.0"
+itertools = "0.14.0"
+rand = "0.9.0"
+serde = "1.0.217"
+strum_macros = "0.26.4"
+tokio = { version = "1.43.0", features = ["sync", "rt-multi-thread", "time", "macros", "fs"] }
+
