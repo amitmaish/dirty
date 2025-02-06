@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use eframe::{
-    egui::{CentralPanel, Slider, Ui},
+    egui::{CentralPanel, Context, Slider, Ui},
     App,
 };
 
@@ -50,14 +50,14 @@ impl FaderUI for Channel {
                 .text("volume"),
         );
         if fader.double_clicked() {
-            self.volume = 1.0
+            eprintln!("double clicked");
+            self.volume = 1.0;
         }
-        if fader.changed() {}
     }
 }
 
 impl App for DirtyUI {
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         CentralPanel::default().show(ctx, |ui| {
             for channel in &mut self.channels {
                 channel.lock().unwrap().draw_fader(ui);
@@ -66,7 +66,6 @@ impl App for DirtyUI {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        eprintln!("UI quit app");
         let _ = self.ui_tx.send(UIMessage::Quit);
     }
 }

@@ -44,7 +44,6 @@ impl AudioSys {
     }
 
     pub fn run(&mut self, ui_rx: Receiver<dirty_ui::UIMessage>) -> Result<()> {
-        eprintln!("audio run");
         let mut buffer = Buffer::<f32>::new(BUFFER_SIZE * self.config.channels as usize);
         let mut listener = buffer.listen();
 
@@ -52,22 +51,21 @@ impl AudioSys {
             buffer.write(Vec::from(data));
         };
 
-        let _volume = Arc::clone(self.channels.first().unwrap());
+        let volume = Arc::clone(self.channels.first().unwrap());
 
         let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             let input = listener.read();
-            let input: Vec<f32> = input.iter().map(|&s| s * _volume.lock().unwrap().volume).collect();
+            let input: Vec<f32> = input.iter().map(|&s| s * volume.lock().unwrap().volume).collect();
             data.copy_from_slice(&input[..data.len()]);
         };
 
         let input_stream = self.get_default_input_stream(input_data_fn, err_fn, None);
         let output_stream = self.get_default_output_stream(output_data_fn, err_fn, None);
 
-        input_stream.play().unwrap();
-        output_stream.play().unwrap();
+        input_stream.play()?;
+        output_stream.play()?;
 
-        ui_rx.recv().unwrap();
-        eprintln!("audio quit app");
+        ui_rx.recv()?;
         Ok(())
     }
 

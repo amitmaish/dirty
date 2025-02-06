@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
 
     ui.register_channel(audio_sys.channels.first().context("no channels")?);
 
-    let audio_thread = spawn_blocking(move || audio_sys.run(ui_rx));
+    let audio_handle = spawn_blocking(move || audio_sys.run(ui_rx));
 
     let _ = run_native(
         "dirty",
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
     );
 
     // return
-    audio_thread.await??;
+    audio_handle.await??;
 
     Ok(())
 }
