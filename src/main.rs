@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok, Result};
+use anyhow::{Ok, Result};
 use dirty_core::AudioSys;
 use dirty_ui::DirtyUI;
 use eframe::{run_native, NativeOptions};
@@ -15,9 +15,7 @@ async fn main() -> Result<()> {
     let mut audio_sys = AudioSys::new()?;
 
     // initiate ui
-    let (mut ui, ui_rx) = DirtyUI::new();
-
-    ui.register_channel(audio_sys.channels.first().context("no channels")?);
+    let (ui, ui_rx) = DirtyUI::new(&audio_sys);
 
     let audio_handle = spawn_blocking(move || audio_sys.run(ui_rx));
 

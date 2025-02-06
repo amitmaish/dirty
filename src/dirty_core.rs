@@ -18,7 +18,7 @@ pub struct AudioSys {
 
     pub config: StreamConfig,
 
-    pub channels: Vec<Arc<Mutex<Channel>>>,
+    pub channels: Arc<Mutex<Vec<Channel>>>,
 }
 
 impl AudioSys {
@@ -39,7 +39,7 @@ impl AudioSys {
             input_device: input,
             output_device: output,
             config,
-            channels: vec![Arc::new(Mutex::new(Channel::new()))],
+            channels: Arc::new(Mutex::new(vec![Channel::new()])),
         })
     }
 
@@ -51,11 +51,13 @@ impl AudioSys {
             buffer.write(Vec::from(data));
         };
 
-        let volume = Arc::clone(self.channels.first().unwrap());
+        let channels = Arc::clone(&self.channels);
 
         let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             let input = listener.read();
-            let input: Vec<f32> = input.iter().map(|&s| s * volume.lock().unwrap().volume).collect();
+            let binding = channels.lock().expect("lock failed");
+            let channel = binding.first().expect("no channels");
+            let input: Vec<f32> = input.iter().map(|&s| s * channel.volume).collect();
             data.copy_from_slice(&input[..data.len()]);
         };
 
@@ -104,7 +106,7 @@ impl AudioSys {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Channel {
     pub volume: f32,
 }

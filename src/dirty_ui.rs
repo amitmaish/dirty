@@ -8,33 +8,28 @@ use eframe::{
     App,
 };
 
-use crate::dirty_core::Channel;
+use crate::dirty_core::{AudioSys, Channel};
 
 pub enum UIMessage {
     Quit,
-    VolumeChanged(f32),
 }
 
 pub struct DirtyUI {
-    channels: Vec<Arc<Mutex<Channel>>>,
+    channels: Arc<Mutex<Vec<Channel>>>,
 
     ui_tx: Sender<UIMessage>,
 }
 
 impl DirtyUI {
-    pub fn new() -> (Self, Receiver<UIMessage>) {
+    pub fn new(audio_sys: &AudioSys) -> (Self, Receiver<UIMessage>) {
         let (ui_tx, ui_rx) = mpsc::channel();
         (
             Self {
-                channels: Vec::<Arc<Mutex<Channel>>>::new(),
+                channels: Arc::clone(&audio_sys.channels),
                 ui_tx,
             },
             ui_rx,
         )
-    }
-
-    pub fn register_channel(&mut self, channel: &Arc<Mutex<Channel>>) {
-        self.channels.push(Arc::clone(channel));
     }
 }
 
@@ -59,8 +54,10 @@ impl FaderUI for Channel {
 impl App for DirtyUI {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         CentralPanel::default().show(ctx, |ui| {
-            for channel in &mut self.channels {
-                channel.lock().unwrap().draw_fader(ui);
+            let mut channels =
+                self.channels.lock().expect("channels lock failed");
+            for channel in &mut *channels {
+                channel.draw_fader(ui);
             }
         });
     }
