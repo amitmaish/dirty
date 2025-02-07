@@ -45,8 +45,12 @@ impl FaderUI for Channel {
                 .text("volume"),
         );
         if fader.double_clicked() {
-            eprintln!("double clicked");
             self.volume = 1.0;
+        }
+
+        let panning = ui.add(Slider::new(&mut self.panning, -1.0..=1.0).text("pan"));
+        if panning.double_clicked() {
+            self.panning = 0.0;
         }
     }
 }
@@ -54,8 +58,7 @@ impl FaderUI for Channel {
 impl App for DirtyUI {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         CentralPanel::default().show(ctx, |ui| {
-            let mut channels =
-                self.channels.lock().expect("channels lock failed");
+            let mut channels = self.channels.lock().expect("channels lock failed");
             for channel in &mut *channels {
                 channel.draw_fader(ui);
             }

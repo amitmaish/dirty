@@ -17,8 +17,8 @@ async fn main() -> Result<()> {
     // initiate ui
     let (ui, ui_rx) = DirtyUI::new(&audio_sys);
 
+    // launch threads
     let audio_handle = spawn_blocking(move || audio_sys.run(ui_rx));
-
     let _ = run_native(
         "dirty",
         NativeOptions::default(),
