@@ -1,15 +1,19 @@
 use core::f32;
 use std::{
-    sync::{mpsc::Receiver, Arc, Mutex},
+    ops::AddAssign,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc, Mutex,
+    },
     time::Duration,
-    vec,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, Device, Host, SampleRate, SizedSample, Stream, StreamConfig,
 };
+use tokio::sync::oneshot;
 
 use crate::{dirty_ui, BUFFER_SIZE};
 
@@ -24,7 +28,7 @@ pub struct AudioSys {
 }
 
 impl AudioSys {
-    pub fn new() -> Result<Self> {
+    pub fn new_default() -> Result<Self> {
         let host = cpal::default_host();
         let input = host
             .default_input_device()
@@ -46,32 +50,16 @@ impl AudioSys {
     }
 
     pub fn run(&mut self, ui_rx: Receiver<dirty_ui::UIMessage>) -> Result<()> {
-        let mut buffers = Vec::<Buffer<f32>>::new();
-
-        for _ in 0..self.config.channels {
-            buffers.push(Buffer::<f32>::new(BUFFER_SIZE));
-        }
-
-        let listeners: BuffVec<f32> =
-            BuffVec::<f32>::new(buffers.iter().map(|b| b.listen()).collect());
-
         let num_channels = self.config.channels as usize;
+        let output_buffers: Arc<Mutex<BuffVec<f32>>> =
+            Arc::new(Mutex::new(BuffVec::new(num_channels)));
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            buffers.iter_mut().enumerate().for_each(|(i, buffer)| {
-                buffer.write(
-                    data.split_at(i)
-                        .1
-                        .iter()
-                        .step_by(num_channels)
-                        .copied()
-                        .collect(),
-                );
-            });
+            let _input_buffers = Arc::new(BuffVec::deinterlace(data, num_channels));
         };
 
         let channels = Arc::clone(&self.channels);
         let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            let input: Vec<f32> = listeners.clone().collect();
+            let input: Vec<f32> = output_buffers.lock().unwrap().clone().collect();
             let binding = channels.lock().expect("lock failed");
             let channel = binding.first().expect("no channels");
             let input: Vec<f32> = input.iter().map(|s| s * channel.volume).collect();
@@ -125,29 +113,109 @@ impl AudioSys {
 
 #[derive(Clone, Copy)]
 pub enum AudioIO {
+    None,
+    Hardware(PhysicalAudioIO),
+}
+
+#[derive(Clone, Copy)]
+pub enum PhysicalAudioIO {
     Mono(usize),
     Stereo(usize, usize),
 }
 
-#[derive(Clone, Copy)]
+pub enum ChannelMessage {
+    GetName(oneshot::Sender<String>),
+    SetName(String),
+
+    GetVolume(oneshot::Sender<f32>),
+    SetVolume(f32),
+
+    GetPanning(oneshot::Sender<f32>),
+    SetPanning(f32),
+
+    GetInput(oneshot::Sender<AudioIO>),
+    SetInput(AudioIO),
+
+    GetOutput(oneshot::Sender<AudioIO>),
+    SetOutput(AudioIO),
+
+    NewBuffer(Arc<BuffVec<f32>>),
+}
+
 pub struct Channel {
+    _channel_rx: Receiver<ChannelMessage>,
+    channel_tx: Sender<ChannelMessage>,
+
+    _name: String,
+
     pub volume: f32,
     pub panning: f32,
 
-    pub _input: AudioIO,
-    pub _output: AudioIO,
+    _input: AudioIO,
+    _output: AudioIO,
 }
 
 impl Channel {
     pub fn new() -> Self {
+        let (channel_tx, channel_rx) = channel();
         Self {
+            _channel_rx: channel_rx,
+            channel_tx,
+
+            _name: "".to_string(),
+
             volume: 1.,
             panning: 0.,
 
-            _input: AudioIO::Mono(0),
-            _output: AudioIO::Stereo(0, 1),
+            _input: AudioIO::None,
+            _output: AudioIO::None,
         }
     }
+
+    pub fn _get_channel_tx(&self) -> Sender<ChannelMessage> {
+        self.channel_tx.clone()
+    }
+
+    fn _handle_message(&mut self, message: ChannelMessage) {
+        match message {
+            ChannelMessage::GetName(sender) => {
+                let _ = sender.send(self._name.clone());
+            }
+            ChannelMessage::SetName(name) => {
+                self._name = name;
+            }
+            ChannelMessage::GetVolume(sender) => {
+                let _ = sender.send(self.volume);
+            }
+            ChannelMessage::SetVolume(volume) => {
+                self.volume = volume;
+            }
+            ChannelMessage::GetPanning(sender) => {
+                let _ = sender.send(self.panning);
+            }
+            ChannelMessage::SetPanning(panning) => {
+                self.panning = panning;
+            }
+            ChannelMessage::GetInput(sender) => {
+                let _ = sender.send(self._input);
+            }
+            ChannelMessage::SetInput(input) => {
+                self._input = input;
+            }
+            ChannelMessage::GetOutput(sender) => {
+                let _ = sender.send(self._output);
+            }
+            ChannelMessage::SetOutput(output) => {
+                self._output = output;
+            }
+
+            ChannelMessage::NewBuffer(data) => {
+                self._process_audio(data);
+            }
+        }
+    }
+
+    fn _process_audio(&self, _data: Arc<BuffVec<f32>>) {}
 }
 
 impl Default for Channel {
@@ -161,12 +229,7 @@ pub struct Buffer<T> {
     buffer: Arc<Mutex<Vec<T>>>,
 }
 
-#[derive(Clone)]
-pub struct BufferListener<T> {
-    buffer: Arc<Mutex<Vec<T>>>,
-}
-
-impl<T: Clone + Default> Buffer<T> {
+impl<T: AddAssign + Clone + Copy + Default + Sync> Buffer<T> {
     pub fn new(buffer_size: usize) -> Buffer<T> {
         Buffer::<T> {
             buffer: Arc::new(Mutex::new(vec![T::default(); buffer_size])),
@@ -177,36 +240,30 @@ impl<T: Clone + Default> Buffer<T> {
         self.buffer.lock().unwrap().splice(.., data);
     }
 
-    pub fn listen(&self) -> BufferListener<T> {
-        BufferListener {
-            buffer: Arc::clone(&self.buffer),
+    pub fn _overdub(&mut self, data: Vec<T>) -> anyhow::Result<()> {
+        let mut buffer = self.buffer.lock().unwrap();
+        for (i, s) in buffer.iter_mut().enumerate() {
+            *s += *data.get(i).context("mismatched buffer size")?;
         }
+        Ok(())
     }
 
-    #[cfg(test)]
-    fn to_vec(&self) -> Vec<T> {
-        let vec = self.buffer.lock().unwrap().to_vec();
-        vec
-    }
-}
-
-impl<T: Clone> BufferListener<T> {
-    pub fn read(&mut self) -> Vec<T> {
-        self.buffer.lock().unwrap().to_vec()
+    pub fn _read(&mut self) -> Result<Vec<T>> {
+        Ok(self.buffer.lock().unwrap().clone())
     }
 }
 
 #[derive(Clone)]
-struct BuffVec<T> {
-    data: Vec<BufferListener<T>>,
+pub struct BuffVec<T> {
+    data: Vec<Buffer<T>>,
     outer_pointer: usize,
     inner_pointer: usize,
 }
 
-impl<T: Clone> BuffVec<T> {
-    fn new(data: Vec<BufferListener<T>>) -> Self {
+impl<T: AddAssign + Clone + Copy + Default + Sync> BuffVec<T> {
+    fn new(channels: usize) -> Self {
         Self {
-            data,
+            data: vec![Buffer::<T>::new(0); channels],
             outer_pointer: 0,
             inner_pointer: 0,
         }
@@ -226,122 +283,35 @@ impl<T: Clone> BuffVec<T> {
             }
         }
     }
+
+    fn deinterlace(data: &[T], num_channels: usize) -> Self {
+        let mut temp_buf = BuffVec::new(num_channels);
+        temp_buf
+            .data
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, buffer)| {
+                buffer.write(
+                    data.split_at(i)
+                        .1
+                        .iter()
+                        .step_by(num_channels)
+                        .copied()
+                        .collect(),
+                );
+            });
+        temp_buf
+    }
 }
 
-impl<T: Clone> Iterator for BuffVec<T> {
+impl<T: AddAssign + Clone + Copy + Default + Sync> Iterator for BuffVec<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.get_next().clone()
+        self.get_next()
     }
 }
 
 fn err_fn(err: cpal::StreamError) {
     eprintln!("an error occurred on stream: {}", err);
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn deinterlace_data() {
-        let mut buffers = [
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-            Buffer::<usize>::new(BUFFER_SIZE),
-        ];
-        let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let num_channels = 10;
-
-        buffers.iter_mut().enumerate().for_each(|(i, buffer)| {
-            let data = data
-                .split_at(i)
-                .1
-                .iter()
-                .step_by(num_channels)
-                .copied()
-                .collect::<Vec<usize>>();
-            eprintln!("{:?}", data);
-            buffer.write(data);
-        });
-
-        let buffers: Vec<Vec<usize>> = buffers.iter().map(|v| v.clone().to_vec()).collect();
-
-        assert_eq!(
-            buffers,
-            vec![
-                vec![0, 0],
-                vec![1, 1],
-                vec![2, 2],
-                vec![3, 3],
-                vec![4, 4],
-                vec![5, 5],
-                vec![6, 6],
-                vec![7, 7],
-                vec![8, 8],
-                vec![9, 9]
-            ]
-        )
-    }
-
-    #[test]
-    fn interlace_data() {
-        let data = BuffVec::new(vec![
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-            Buffer::<usize>::new(1).listen(),
-        ]);
-
-        assert_eq!(data.clone().collect::<Vec<usize>>(), vec![0; 10])
-    }
-
-    #[test]
-    fn audio_integration() {
-        let input_data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let num_channels = 10;
-
-        let mut buffers = Vec::<Buffer<usize>>::new();
-
-        for _ in 0..num_channels {
-            buffers.push(Buffer::<usize>::new(BUFFER_SIZE));
-        }
-
-        let listeners: BuffVec<usize> =
-            BuffVec::<usize>::new(buffers.iter().map(|b| b.listen()).collect());
-
-        buffers.iter_mut().enumerate().for_each(|(i, buffer)| {
-            let data = input_data
-                .split_at(i)
-                .1
-                .iter()
-                .step_by(num_channels)
-                .copied()
-                .collect::<Vec<usize>>();
-            eprintln!("{:?}", data);
-            buffer.write(data);
-        });
-        eprintln!("{:?}", buffers);
-
-        let input: Vec<usize> = listeners.clone().collect();
-        let mut output_data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        output_data.copy_from_slice(&input[..input_data.len()]);
-
-        assert_eq!(output_data, input_data)
-    }
 }

@@ -12,7 +12,7 @@ const BUFFER_SIZE: usize = 16;
 #[tokio::main]
 async fn main() -> Result<()> {
     // initiate the audio
-    let mut audio_sys = AudioSys::new()?;
+    let mut audio_sys = AudioSys::new_default()?;
 
     // initiate ui
     let (ui, ui_rx) = DirtyUI::new(&audio_sys);
