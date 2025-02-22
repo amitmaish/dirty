@@ -1,14 +1,15 @@
-use std::sync::{
-    mpsc::{self, Receiver, Sender},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 
 use eframe::{
     egui::{CentralPanel, Context, Slider, Ui},
     App,
 };
+use tokio::{
+    runtime::Handle,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 
-use crate::dirty_core::{AudioSys, Channel};
+use crate::dirty_core::{core::DirtyCore, Channel};
 
 pub enum UIMessage {
     Quit,
@@ -21,8 +22,8 @@ pub struct DirtyUI {
 }
 
 impl DirtyUI {
-    pub fn new(audio_sys: &AudioSys) -> (Self, Receiver<UIMessage>) {
-        let (ui_tx, ui_rx) = mpsc::channel();
+    pub fn new(audio_sys: &DirtyCore) -> (Self, Receiver<UIMessage>) {
+        let (ui_tx, ui_rx) = channel(16);
         (
             Self {
                 channels: Arc::clone(&audio_sys.channels),
@@ -66,6 +67,6 @@ impl App for DirtyUI {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        let _ = self.ui_tx.send(UIMessage::Quit);
+        let _ = Handle::current().block_on(self.ui_tx.send(UIMessage::Quit));
     }
 }
