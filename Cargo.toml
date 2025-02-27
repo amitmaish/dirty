@@ -1,5 +1,6 @@
 [package]
-name = "dirty"
+name = "dirty_daw"
+description = "a simple daw"
 version = "0.1.0"
 authors = ["amit"]
 edition = "2021"
@@ -16,3 +17,10 @@ strum_macros = "0.27.0"
 tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
+
+[profile.release]
+codegen-units = 1
+
+
+[package.metadata.bundle]
+identifier = "io.github.amitmaish.dirty"

@@ -10,8 +10,8 @@ use tokio::{
 };
 
 use super::{
-    core::{AudioIO, DirtyCoreMessage, PhysicalAudioIO},
-    output_system::OutputSystemMessage,
+    audio_system::OutputSystemMessage,
+    core::{AudioIO, DirtyCoreMessage, Float, PhysicalAudioIO},
     BuffVec,
 };
 
@@ -21,11 +21,11 @@ pub enum ChannelMessage {
     GetName(oneshot::Sender<String>),
     SetName(String),
 
-    GetVolume(oneshot::Sender<f32>),
-    SetVolume(f32),
+    GetVolume(oneshot::Sender<Float>),
+    SetVolume(Float),
 
-    GetPanning(oneshot::Sender<f32>),
-    SetPanning(f32),
+    GetPanning(oneshot::Sender<Float>),
+    SetPanning(Float),
 
     GetInput(oneshot::Sender<AudioIO>),
     SetInput(AudioIO),
@@ -37,7 +37,7 @@ pub enum ChannelMessage {
 
     RegisterMaster(Sender<()>),
 
-    NewBuffer(Arc<BuffVec<f32>>),
+    NewBuffer(Arc<BuffVec<Float>>),
 }
 
 pub struct Channel {
@@ -46,8 +46,8 @@ pub struct Channel {
 
     name: String,
 
-    pub volume: f32,
-    pub panning: f32,
+    pub volume: Float,
+    pub panning: Float,
 
     input: AudioIO,
     output: AudioIO,
@@ -131,7 +131,7 @@ impl Channel {
         }
     }
 
-    async fn process_audio(&self, data: Arc<BuffVec<f32>>) {
+    async fn process_audio(&self, data: Arc<BuffVec<Float>>) {
         let input = self.input;
         let channel_volume = self.volume;
 
@@ -162,11 +162,13 @@ impl Channel {
                             let (sender, reciever) = oneshot::channel();
                             audio_system
                                 .send(DirtyCoreMessage::GetOutputSystem(sender))
-                                .await;
+                                .await
+                                .unwrap();
                             let new_output_system = reciever.await.unwrap();
                             self_address
                                 .send(ChannelMessage::SetOuptutSystem(new_output_system))
-                                .await;
+                                .await
+                                .unwrap();
                         }
                     }
                 }

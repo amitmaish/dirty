@@ -2,9 +2,11 @@ use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use anyhow::{Context, Result};
 
+use super::core::Float;
+
 pub trait Sample: Add + AddAssign + Mul + MulAssign + Sized {}
 
-impl Sample for f32 {}
+impl Sample for Float {}
 
 #[derive(Debug, Clone)]
 pub struct Buffer<T> {

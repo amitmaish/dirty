@@ -10,11 +10,11 @@ const BUFFER_SIZE: usize = 16;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let audio_sys = DirtyCore::new_default()?;
+    let core_sys = DirtyCore::new_default()?;
 
-    let (ui, ui_rx) = DirtyUI::new(&audio_sys);
+    let (ui, ui_rx) = DirtyUI::new(&core_sys);
 
-    let audio_future = audio_sys.run(ui_rx);
+    let core_future = core_sys.run(ui_rx);
 
     let _ = run_native(
         "dirty",
@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
         Box::new(|_cc| std::result::Result::Ok(Box::<DirtyUI>::new(ui))),
     );
 
-    audio_future.await?;
+    core_future.await?;
 
     Ok(())
 }

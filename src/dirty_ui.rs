@@ -9,7 +9,7 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
 };
 
-use crate::dirty_core::{core::DirtyCore, Channel};
+use crate::dirty_core::{channel::Channel, core::DirtyCore};
 
 pub enum UIMessage {
     Quit,
